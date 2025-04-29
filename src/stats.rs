@@ -22,6 +22,25 @@ pub struct SearchStatistics {
 
     /// Whether the search was stopped early due to time constraints
     pub stopped_early: bool,
+    
+    /// Node pool metrics (if node pool is used)
+    pub node_pool_stats: Option<NodePoolStats>,
+}
+
+/// Statistics about the node pool
+#[derive(Debug, Clone)]
+pub struct NodePoolStats {
+    /// Total capacity of the node pool
+    pub capacity: usize,
+    
+    /// Number of available nodes in the pool
+    pub available: usize,
+    
+    /// Total nodes allocated from the pool
+    pub total_allocated: usize,
+    
+    /// Total nodes returned to the pool
+    pub total_returned: usize,
 }
 
 impl SearchStatistics {
@@ -33,7 +52,18 @@ impl SearchStatistics {
             tree_size: 1, // Start with root node
             max_depth: 0,
             stopped_early: false,
+            node_pool_stats: None,
         }
+    }
+    
+    /// Update node pool statistics
+    pub fn update_node_pool_stats(&mut self, capacity: usize, available: usize, allocated: usize, returned: usize) {
+        self.node_pool_stats = Some(NodePoolStats {
+            capacity,
+            available,
+            total_allocated: allocated,
+            total_returned: returned,
+        });
     }
 
     /// Returns the average time per iteration in microseconds
@@ -54,7 +84,7 @@ impl SearchStatistics {
 
     /// Returns a summary of the statistics as a string
     pub fn summary(&self) -> String {
-        format!(
+        let mut summary = format!(
             "MCTS Search Statistics:\n\
              - Iterations: {}\n\
              - Total time: {:.3} seconds\n\
@@ -70,7 +100,30 @@ impl SearchStatistics {
             self.avg_time_per_iteration_us(),
             self.iterations_per_second(),
             self.stopped_early
-        )
+        );
+        
+        // Add node pool stats if available
+        if let Some(pool_stats) = &self.node_pool_stats {
+            summary.push_str(&format!(
+                "\n\nNode Pool Statistics:\n\
+                 - Capacity: {}\n\
+                 - Available nodes: {}\n\
+                 - Total allocated: {}\n\
+                 - Total returned: {}\n\
+                 - Reuse ratio: {:.2}%",
+                pool_stats.capacity,
+                pool_stats.available,
+                pool_stats.total_allocated,
+                pool_stats.total_returned,
+                if pool_stats.total_allocated > 0 {
+                    (pool_stats.total_returned as f64 / pool_stats.total_allocated as f64) * 100.0
+                } else {
+                    0.0
+                }
+            ));
+        }
+        
+        summary
     }
 }
 

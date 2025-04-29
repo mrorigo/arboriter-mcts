@@ -1,8 +1,3 @@
-//! Tree data structures for Monte Carlo Tree Search
-//!
-//! This module defines the tree representation used in MCTS, including
-//! nodes, edges, and paths through the tree.
-
 use rand::prelude::IteratorRandom;
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -161,6 +156,35 @@ impl<S: GameState> MCTSNode<S> {
         self.children.last_mut()
     }
 
+    /// Expands the node using a node pool for better performance
+    ///
+    /// This version of expand uses a node pool to reduce allocation overhead.
+    /// It's recommended for performance-critical applications.
+    pub fn expand_with_pool(
+        &mut self, 
+        action_index: usize, 
+        pool: &mut NodePool<S>
+    ) -> Option<&mut MCTSNode<S>> {
+        if action_index >= self.unexpanded_actions.len() {
+            return None;
+        }
+
+        let action = self.unexpanded_actions.swap_remove(action_index);
+        let next_state = self.state.apply_action(&action);
+        let current_player = self.state.get_current_player();
+
+        // Create a new node using the pool
+        let node = pool.create_node(
+            next_state,
+            Some(action),
+            Some(current_player),
+            self.depth + 1,
+        );
+
+        self.children.push(node);
+        self.children.last_mut()
+    }
+
     /// Expands a random unexpanded action
     pub fn expand_random(&mut self) -> Option<&mut MCTSNode<S>> {
         if self.unexpanded_actions.is_empty() {
@@ -172,6 +196,162 @@ impl<S: GameState> MCTSNode<S> {
         let index = (0..self.unexpanded_actions.len()).choose(&mut rng).unwrap();
 
         self.expand(index)
+    }
+    
+    /// Expands a random unexpanded action using a node pool
+    pub fn expand_random_with_pool(&mut self, pool: &mut NodePool<S>) -> Option<&mut MCTSNode<S>> {
+        if self.unexpanded_actions.is_empty() {
+            return None;
+        }
+
+        // Use IteratorRandom trait for choose method on range
+        let mut rng = rand::thread_rng();
+        let index = (0..self.unexpanded_actions.len()).choose(&mut rng).unwrap();
+
+        self.expand_with_pool(index, pool)
+    }
+}
+
+/// Pool for efficient node allocation in MCTS
+///
+/// This implementation provides memory reuse by creating and recycling nodes
+/// instead of frequently allocating and deallocating them. This can significantly
+/// improve performance in large MCTS searches.
+pub struct NodePool<S: GameState> {
+    /// Template state used for creating new nodes
+    template_state: S,
+    
+    /// Preallocated, reusable nodes for efficient reuse
+    free_nodes: Vec<MCTSNode<S>>,
+    
+    /// Statistics about allocations
+    stats: NodePoolStats,
+}
+
+/// Statistics for node pool performance tracking
+#[derive(Debug, Default, Clone)]
+pub struct NodePoolStats {
+    /// Total nodes created by the pool
+    pub total_created: usize,
+    
+    /// Total nodes allocated (both new and reused)
+    pub total_allocations: usize,
+    
+    /// Total nodes recycled back to the pool
+    pub total_recycled: usize,
+}
+
+impl<S: GameState> NodePool<S> {
+    /// Creates a new node pool with the given template state
+    ///
+    /// # Arguments
+    ///
+    /// * `template_state` - A template state that can be cloned when creating new nodes
+    /// * `initial_size` - Number of nodes to preallocate
+    pub fn new(template_state: S, initial_size: usize) -> Self {
+        let mut pool = NodePool {
+            template_state,
+            free_nodes: Vec::with_capacity(initial_size),
+            stats: NodePoolStats::default(),
+        };
+        
+        // Preallocate nodes if requested
+        if initial_size > 0 {
+            pool.preallocate(initial_size);
+        }
+        
+        pool
+    }
+    
+    /// Preallocate nodes to reduce allocation pressure during search
+    fn preallocate(&mut self, count: usize) {
+        for _ in 0..count {
+            let node = MCTSNode {
+                state: self.template_state.clone(),
+                action: None,
+                visits: AtomicU64::new(0),
+                total_reward: AtomicU64::new(0),
+                children: Vec::new(),
+                unexpanded_actions: Vec::new(),
+                depth: 0,
+                player: self.template_state.get_current_player(),
+            };
+            
+            self.free_nodes.push(node);
+            self.stats.total_created += 1;
+        }
+    }
+    
+    /// Creates a new node, either from the pool or by allocating a new one
+    pub fn create_node(
+        &mut self,
+        state: S,
+        action: Option<S::Action>,
+        parent_player: Option<S::Player>,
+        depth: usize,
+    ) -> MCTSNode<S> {
+        self.stats.total_allocations += 1;
+        
+        if let Some(mut node) = self.free_nodes.pop() {
+            // Get player before moving state
+            let player = match &parent_player {
+                Some(p) => p.clone(),
+                None => state.get_current_player(),
+            };
+            
+            // Get legal actions before moving state
+            let legal_actions = state.get_legal_actions();
+            
+            // Reuse an existing node
+            node.state = state;
+            node.action = action;
+            node.visits = AtomicU64::new(0);
+            node.total_reward = AtomicU64::new(0);
+            node.children.clear();
+            node.depth = depth;
+            node.player = player;
+            node.unexpanded_actions = legal_actions;
+            
+            node
+        } else {
+            // Create a new node if the pool is empty
+            self.stats.total_created += 1;
+            MCTSNode::new(state, action, parent_player, depth)
+        }
+    }
+    
+    /// Recycles a node back to the pool for future reuse
+    pub fn recycle_node(&mut self, mut node: MCTSNode<S>) {
+        self.stats.total_recycled += 1;
+        
+        // Clear any large data structures to prevent memory bloat
+        node.children.clear();
+        node.unexpanded_actions.clear();
+        
+        // Add the node back to the free list
+        self.free_nodes.push(node);
+    }
+    
+    /// Recycles all nodes in a tree by recursively adding them to the pool
+    pub fn recycle_tree(&mut self, mut root: MCTSNode<S>) {
+        // First, recursively recycle all children
+        let mut children = std::mem::take(&mut root.children);
+        for child in children.drain(..) {
+            self.recycle_tree(child);
+        }
+        
+        // Then recycle the root node itself
+        self.recycle_node(root);
+    }
+    
+    /// Get statistics about pool utilization
+    pub fn get_stats(&self) -> &NodePoolStats {
+        &self.stats
+    }
+    
+    /// Get current pool size (available nodes)
+    pub fn available_nodes(&self) -> usize {
+        self.free_nodes.len()
     }
 }
 

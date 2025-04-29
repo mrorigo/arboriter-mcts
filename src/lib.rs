@@ -16,92 +16,93 @@
 //!
 //! ## Basic Usage
 //!
-//! ```
-//! // This example demonstrates how to use arboriter-mcts
-//! // with a simple game implementation
+//! ```rust
 //! use arboriter_mcts::{MCTS, MCTSConfig, GameState};
 //!
-//! // First, define our action and player types
+//! // Implement GameState for your game
+//! #[derive(Clone)]
+//! struct MyGame {
+//!     // Game state fields would go here
+//!     player_turn: MyPlayer,
+//!     is_over: bool,
+//! }
+//!
+//! // Define an action type
 //! #[derive(Clone, Debug, PartialEq, Eq)]
 //! struct MyAction(u8);
 //!
 //! impl arboriter_mcts::Action for MyAction {
-//!     fn id(&self) -> usize { self.0 as usize }
+//!     fn id(&self) -> usize {
+//!         self.0 as usize
+//!     }
 //! }
 //!
+//! // Define a player type
 //! #[derive(Clone, Debug, PartialEq, Eq)]
 //! struct MyPlayer(u8);
 //!
+//! // Implement the Player trait for our custom type
 //! impl arboriter_mcts::Player for MyPlayer {}
-//!
-//! // A very simple game where the state reaches terminal after one move
-//! #[derive(Clone)]
-//! struct MyGame {
-//!     player_turn: MyPlayer,
-//!     moves_made: u8,
-//!     max_moves: u8, // Game ends after this many moves
-//! }
 //!
 //! impl GameState for MyGame {
 //!     type Action = MyAction;
 //!     type Player = MyPlayer;
-//!     
+//!
 //!     fn get_legal_actions(&self) -> Vec<Self::Action> {
-//!         if self.is_terminal() {
-//!             return vec![];
-//!         }
-//!         // Just return a single possible action for simplicity
-//!         vec![MyAction(0)]
+//!         // Return legal actions from this state
+//!         vec![MyAction(0), MyAction(1), MyAction(2)]
 //!     }
-//!     
-//!     fn apply_action(&self, _action: &Self::Action) -> Self {
+//!
+//!     fn apply_action(&self, action: &Self::Action) -> Self {
+//!         // Apply the action and return the new state
 //!         let mut new_state = self.clone();
-//!         new_state.moves_made += 1;
+//!         // Logic to apply action would go here
 //!         new_state.player_turn = MyPlayer(1 - self.player_turn.0); // Switch players
 //!         new_state
 //!     }
-//!     
+//!
 //!     fn is_terminal(&self) -> bool {
-//!         self.moves_made >= self.max_moves
+//!         // Return true if this is a terminal (game over) state
+//!         self.is_over
 //!     }
-//!     
+//!
 //!     fn get_result(&self, for_player: &Self::Player) -> f64 {
-//!         // Simple draw result for testing
-//!         0.5
+//!         // Return the outcome from for_player's perspective
+//!         // 1.0 = win, 0.5 = draw, 0.0 = loss
+//!         if self.player_turn.0 == for_player.0 { 0.7 } else { 0.3 }
 //!     }
-//!     
+//!
 //!     fn get_current_player(&self) -> Self::Player {
+//!         // Return the player whose turn it is
 //!         self.player_turn.clone()
 //!     }
 //! }
 //!
-//! fn main() -> Result<(), arboriter_mcts::MCTSError> {
-//!     // Create initial game state
-//!     let initial_state = MyGame { 
-//!         player_turn: MyPlayer(0),
-//!         moves_made: 0,
-//!         max_moves: 1, // Game ends after just one move
-//!     };
+//! # fn main() -> Result<(), arboriter_mcts::MCTSError> {
+//! // Create initial game state
+//! let initial_state = MyGame {
+//!     player_turn: MyPlayer(0),
+//!     is_over: false,
+//! };
 //!
-//!     // Create a configuration with very few iterations for quick testing
-//!     let config = MCTSConfig::default()
-//!         .with_exploration_constant(1.414)
-//!         .with_max_iterations(10);
+//! // Create a configuration for the search
+//! let config = MCTSConfig::default()
+//!     .with_exploration_constant(1.414)
+//!     .with_max_iterations(1_000);
 //!
-//!     // Create the MCTS searcher with initial state
-//!     let mut mcts = MCTS::new(initial_state, config);
+//! // Create the MCTS searcher with initial state
+//! let mut mcts = MCTS::new(initial_state, config);
 //!
-//!     // Find the best action
-//!     let best_action = mcts.search()?;
+//! // Find the best action
+//! let best_action = mcts.search()?;
 //!
-//!     // Get search statistics
-//!     println!("Search statistics: {}", mcts.get_statistics().summary());
+//! // Get search statistics
+//! println!("{}", mcts.get_statistics().summary());
 //!
-//!     // Use the action in your game
-//!     println!("Best action: {:?}", best_action);
-//!     
-//!     Ok(())
-//! }
+//! // Use the action in your game
+//! println!("Best action: {:?}", best_action);
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ## How It Works
@@ -129,38 +130,38 @@
 //!
 //! ```rust
 //! use arboriter_mcts::{MCTS, MCTSConfig, GameState};
-//! 
+//!
 //! // Example with minimal configuration for customizing policies
-//! 
+//!
 //! // Define the types and structures needed
 //! #[derive(Clone, Debug, PartialEq, Eq)]
 //! struct MyPlayer(u8);
-//! 
+//!
 //! impl arboriter_mcts::Player for MyPlayer {}
-//! 
+//!
 //! #[derive(Clone, Debug, PartialEq, Eq)]
 //! struct MyAction(u8);
-//! 
+//!
 //! impl arboriter_mcts::Action for MyAction {
 //!     fn id(&self) -> usize { self.0 as usize }
 //! }
-//! 
+//!
 //! // Create a simple game with a terminal state
 //! #[derive(Clone)]
 //! struct MyGame {
 //!     player_turn: MyPlayer,
 //!     is_over: bool,
 //! }
-//! 
+//!
 //! impl GameState for MyGame {
 //!     type Action = MyAction;
 //!     type Player = MyPlayer;
-//!     
+//!
 //!     fn get_legal_actions(&self) -> Vec<Self::Action> {
 //!         if self.is_over { return vec![]; }
 //!         vec![MyAction(0)]
 //!     }
-//!     
+//!
 //!     fn apply_action(&self, _: &Self::Action) -> Self {
 //!         // Create a terminal state to ensure search completes quickly
 //!         Self {
@@ -168,42 +169,42 @@
 //!             is_over: true, // Make sure we reach a terminal state
 //!         }
 //!     }
-//!     
+//!
 //!     fn is_terminal(&self) -> bool { self.is_over }
-//!     
+//!
 //!     fn get_result(&self, _: &Self::Player) -> f64 { 0.5 }
-//!     
+//!
 //!     fn get_current_player(&self) -> Self::Player { self.player_turn.clone() }
 //! }
-//! 
+//!
 //! // Import the policy types
 //! use arboriter_mcts::policy::{
 //!     selection::UCB1Policy,
 //!     simulation::RandomPolicy,
 //!     backpropagation::StandardPolicy,
 //! };
-//! 
+//!
 //! fn main() -> Result<(), arboriter_mcts::MCTSError> {
 //!     // Create a terminal state game to ensure fast completion
 //!     let initial_state = MyGame {
 //!         player_turn: MyPlayer(0),
 //!         is_over: false,
 //!     };
-//!     
+//!
 //!     // Configure with very few iterations
 //!     let config = MCTSConfig::default()
 //!         .with_max_iterations(10); // Only do a few iterations for the doctest
-//!     
+//!
 //!     // Customize policies
 //!     let mut mcts = MCTS::new(initial_state, config)
 //!         .with_selection_policy(UCB1Policy::new(1.5))
 //!         .with_simulation_policy(RandomPolicy::new())
 //!         .with_backpropagation_policy(StandardPolicy::new());
-//!     
+//!
 //!     // Run a quick search
 //!     let result = mcts.search();
 //!     println!("Search completed with result: {:?}", result);
-//!     
+//!
 //!     Ok(())
 //! }
 //! ```
