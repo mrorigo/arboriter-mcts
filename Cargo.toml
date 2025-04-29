@@ -1,0 +1,34 @@
+[package]
+name = "arboriter-mcts"
+version = "0.1.0"
+edition = "2021"
+description = "A Monte Carlo Tree Search implementation built on the arboriter tree traversal primitive"
+authors = ["arboriter-mcts contributors"]
+license = "MIT"
+repository = "https://github.com/mrorigo/arboriter-mcts"
+documentation = "https://docs.rs/arboriter-mcts"
+readme = "README.md"
+keywords = ["mcts", "monte-carlo", "game-ai", "tree-search", "decision-making"]
+categories = ["algorithms", "game-development"]
+
+[dependencies]
+arboriter = { version = "0.1.0", path = "../arboriter" }
+rand = "0.8.5"
+thiserror = "1.0"
+log = "0.4"
+
+[dev-dependencies]
+env_logger = "0.10"
+criterion = "0.5"
+
+[[bench]]
+name = "mcts_benchmark"
+harness = false
+
+[[example]]
+name = "tic_tac_toe"
+path = "examples/tic_tac_toe.rs"
+
+[[example]]
+name = "connect_four"
+path = "examples/connect_four.rs"
