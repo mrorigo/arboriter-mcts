@@ -1,6 +1,6 @@
 [package]
 name = "arboriter-mcts"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "A Monte Carlo Tree Search implementation built on the arboriter tree traversal primitive"
 authors = ["arboriter-mcts contributors"]
@@ -12,7 +12,7 @@ keywords = ["mcts", "monte-carlo", "game-ai", "tree-search", "decision-making"]
 categories = ["algorithms", "game-development"]
 
 [dependencies]
-arboriter = { version = "0.1.0", path = "../arboriter" }
+arboriter = "0.1.0"
 rand = "0.8.5"
 thiserror = "1.0"
 log = "0.4"
