@@ -19,21 +19,22 @@ use crate::{
     tree::{MCTSNode, NodePath},
     MCTSError, Result,
 };
+
 /// Standalone helper function to recursively recycle a subtree
-/// 
+///
 /// This needs to be outside the MCTS impl to avoid borrow checker issues
 fn recycle_subtree_recursive<S: GameState>(
     mut node: MCTSNode<S>,
-    pool: &mut crate::tree::NodePool<S>
+    pool: &mut crate::tree::NodePool<S>,
 ) {
     // First take all children
     let mut children = std::mem::take(&mut node.children);
-    
+
     // Recursively recycle each child
     for child in children.drain(..) {
         recycle_subtree_recursive(child, pool);
     }
-    
+
     // Now recycle the node itself
     pool.recycle_node(node);
 }
@@ -42,9 +43,9 @@ fn recycle_subtree_recursive<S: GameState>(
 ///
 /// This struct manages the MCTS algorithm, including tree building and traversal,
 /// and provides methods to run the search and retrieve results.
-pub struct MCTS<S: GameState> {
+pub struct MCTS<S: GameState + 'static> {
     /// Root node of the search tree
-    pub root: MCTSNode<S>,
+    root: MCTSNode<S>,
 
     /// Configuration for the search
     config: MCTSConfig,
@@ -60,7 +61,7 @@ pub struct MCTS<S: GameState> {
 
     /// Policy for backpropagating results
     backpropagation_policy: Box<dyn BackpropagationPolicy<S>>,
-    
+
     /// Node pool for efficient node allocation
     node_pool: Option<crate::tree::NodePool<S>>,
 }
@@ -93,7 +94,7 @@ impl<S: GameState + 'static> MCTS<S> {
             node_pool,
         }
     }
-    
+
     /// Creates a new MCTS instance with a node pool for improved performance
     ///
     /// This constructor initializes MCTS with a node pool, which can significantly
@@ -105,19 +106,21 @@ impl<S: GameState + 'static> MCTS<S> {
     /// * `config` - Configuration for the search
     /// * `initial_pool_size` - Initial number of nodes to pre-allocate
     pub fn with_node_pool(
-        initial_state: S, 
+        initial_state: S,
         config: MCTSConfig,
         initial_pool_size: usize,
-        _pool_chunk_size: usize  // Kept for API compatibility
+        _pool_chunk_size: usize, // Kept for API compatibility
     ) -> Self {
         let mut mcts = Self::new(initial_state.clone(), config);
-        
-        // Initialize the node pool with the template state
+
+        // Initialize the regular node pool
         let pool = crate::tree::NodePool::new(initial_state, initial_pool_size);
         mcts.node_pool = Some(pool);
-        
+
         mcts
     }
+
+    // Removed thread-local pool constructor for now
 
     /// Sets the selection policy to use
     pub fn with_selection_policy<P: SelectionPolicy<S> + 'static>(mut self, policy: P) -> Self {
@@ -149,20 +152,20 @@ impl<S: GameState + 'static> MCTS<S> {
                 self.config.node_pool_size
             ));
         }
-        
+
         // First recycle the previous search tree if we have one
         self.recycle_tree();
-        
+
         // Perform the search
         let result = self.search_for_iterations(self.config.max_iterations);
-        
+
         // If using node pooling, we need to select the best action before recycling
         let best_action = if result.is_ok() {
             Some(result.as_ref().unwrap().clone())
         } else {
             None
         };
-        
+
         // Return the result
         match best_action {
             Some(action) => Ok(action),
@@ -170,7 +173,6 @@ impl<S: GameState + 'static> MCTS<S> {
         }
     }
 
-    // Removed duplicated function - using the top-level function instead
     /// Runs the search for the specified number of iterations
     pub fn search_for_iterations(&mut self, iterations: usize) -> Result<S::Action> {
         // Reset statistics
@@ -203,15 +205,15 @@ impl<S: GameState + 'static> MCTS<S> {
         }
 
         self.statistics.total_time = start_time.elapsed();
-        
+
         // Collect node pool statistics if available
         if let Some(pool) = &self.node_pool {
             let stats = pool.get_stats();
             self.statistics.update_node_pool_stats(
-                stats.total_created, 
-                pool.available_nodes(), 
-                stats.total_allocations, 
-                stats.total_recycled
+                stats.total_created,
+                pool.available_nodes(),
+                stats.total_allocations,
+                stats.total_recycled,
             );
         }
 
@@ -236,23 +238,23 @@ impl<S: GameState + 'static> MCTS<S> {
     pub fn search_for_time(&mut self, duration: Duration) -> Result<S::Action> {
         // First recycle the previous search tree
         self.recycle_tree();
-        
+
         let mut config = self.config.clone();
         config.max_time = Some(duration);
-        
+
         // Keep a reasonable max iterations to prevent runaway search
         // if time checking fails for some reason
         if config.max_iterations == usize::MAX {
             config.max_iterations = 1_000_000;
         }
 
-        // Create a new MCTS instance with or without node pool based on configuration
+        // Create a new MCTS instance with appropriate node pool based on configuration
         let mut mcts = if config.node_pool_size > 0 {
             // We need to extract the values before moving config
             let node_pool_size = config.node_pool_size;
             let node_pool_chunk_size = config.node_pool_chunk_size;
             
-            // If we already have a node pool, we can share it
+            // If we already have a regular node pool, create a similar one
             if let Some(_) = &self.node_pool {
                 // Create a new instance using the clone of the state
                 let mut new_mcts = MCTS::new(self.root.state.clone(), config);
@@ -276,7 +278,7 @@ impl<S: GameState + 'static> MCTS<S> {
         } else {
             MCTS::new(self.root.state.clone(), config)
         };
-        
+
         // Set policies
         mcts = mcts
             .with_selection_policy(self.selection_policy.clone_box())
@@ -284,12 +286,12 @@ impl<S: GameState + 'static> MCTS<S> {
             .with_backpropagation_policy(self.backpropagation_policy.clone_box());
 
         let result = mcts.search();
-        
+
         // If the search was successful, update our statistics
         if result.is_ok() {
             self.statistics = mcts.statistics.clone();
         }
-        
+
         result
     }
 
@@ -369,7 +371,7 @@ impl<S: GameState + 'static> MCTS<S> {
 
             // Decide whether to use the node pool
             let expansion_result = if let Some(pool) = &mut self.node_pool {
-                // Use the node pool for better performance
+                // Use the regular node pool
                 node.expand_with_pool(action_index, pool)
             } else {
                 // Use standard expansion without a pool
@@ -493,12 +495,33 @@ impl<S: GameState + 'static> MCTS<S> {
     pub fn get_statistics(&self) -> &SearchStatistics {
         &self.statistics
     }
+    /// Resets the root node with a new state
+    ///
+    /// This is useful for sequential searches where you want to keep
+    /// the same MCTS instance (and its node pool) but start a fresh search
+    /// with a new root state.
+    ///
+    /// # Arguments
+    ///
+    /// * `state` - The new root state
+    pub fn reset_root(&mut self, state: S) {
+        // First recycle the current tree to return all nodes to the pool
+        self.recycle_tree();
+        
+        // Then create a new root node
+        self.root = MCTSNode::new(state, None, None, 0);
+        
+        // Reset statistics
+        self.statistics = SearchStatistics::new();
+    }
+
     /// Recycles the entire search tree back to the node pool
     ///
     /// This releases all nodes (except the root) back to the pool for reuse in
     /// future searches. This can significantly improve performance when
     /// running multiple consecutive searches.
-    pub fn recycle_tree(&mut self) {
+    pub fn recycle_tree(&mut self) {        
+        // Recycle using the regular node pool
         if let Some(pool) = &mut self.node_pool {
             // Take all children from the root
             let mut children = std::mem::take(&mut self.root.children);
@@ -506,13 +529,6 @@ impl<S: GameState + 'static> MCTS<S> {
             // Recycle each child tree (using a standalone function to avoid borrow issues)
             for child in children.drain(..) {
                 recycle_subtree_recursive(child, pool);
-            }
-            
-            // Make sure the root node still has valid unexpanded_actions
-            // This is critical for subsequent searches
-            if self.root.unexpanded_actions.is_empty() {
-                // Regenerate the unexpanded actions if they're missing
-                self.root.unexpanded_actions = self.root.state.get_legal_actions();
             }
             
             // Update statistics
@@ -554,3 +570,4 @@ impl<S: GameState + 'static> MCTS<S> {
         }
     }
 }
+

@@ -161,9 +161,9 @@ impl<S: GameState> MCTSNode<S> {
     /// This version of expand uses a node pool to reduce allocation overhead.
     /// It's recommended for performance-critical applications.
     pub fn expand_with_pool(
-        &mut self, 
-        action_index: usize, 
-        pool: &mut NodePool<S>
+        &mut self,
+        action_index: usize,
+        pool: &mut NodePool<S>,
     ) -> Option<&mut MCTSNode<S>> {
         if action_index >= self.unexpanded_actions.len() {
             return None;
@@ -197,7 +197,7 @@ impl<S: GameState> MCTSNode<S> {
 
         self.expand(index)
     }
-    
+
     /// Expands a random unexpanded action using a node pool
     pub fn expand_random_with_pool(&mut self, pool: &mut NodePool<S>) -> Option<&mut MCTSNode<S>> {
         if self.unexpanded_actions.is_empty() {
@@ -220,10 +220,10 @@ impl<S: GameState> MCTSNode<S> {
 pub struct NodePool<S: GameState> {
     /// Template state used for creating new nodes
     template_state: S,
-    
+
     /// Preallocated, reusable nodes for efficient reuse
     free_nodes: Vec<MCTSNode<S>>,
-    
+
     /// Statistics about allocations
     stats: NodePoolStats,
 }
@@ -233,10 +233,10 @@ pub struct NodePool<S: GameState> {
 pub struct NodePoolStats {
     /// Total nodes created by the pool
     pub total_created: usize,
-    
+
     /// Total nodes allocated (both new and reused)
     pub total_allocations: usize,
-    
+
     /// Total nodes recycled back to the pool
     pub total_recycled: usize,
 }
@@ -254,15 +254,15 @@ impl<S: GameState> NodePool<S> {
             free_nodes: Vec::with_capacity(initial_size),
             stats: NodePoolStats::default(),
         };
-        
+
         // Preallocate nodes if requested
         if initial_size > 0 {
             pool.preallocate(initial_size);
         }
-        
+
         pool
     }
-    
+
     /// Preallocate nodes to reduce allocation pressure during search
     fn preallocate(&mut self, count: usize) {
         for _ in 0..count {
@@ -276,12 +276,12 @@ impl<S: GameState> NodePool<S> {
                 depth: 0,
                 player: self.template_state.get_current_player(),
             };
-            
+
             self.free_nodes.push(node);
             self.stats.total_created += 1;
         }
     }
-    
+
     /// Creates a new node, either from the pool or by allocating a new one
     pub fn create_node(
         &mut self,
@@ -291,17 +291,17 @@ impl<S: GameState> NodePool<S> {
         depth: usize,
     ) -> MCTSNode<S> {
         self.stats.total_allocations += 1;
-        
+
         if let Some(mut node) = self.free_nodes.pop() {
             // Get player before moving state
             let player = match &parent_player {
                 Some(p) => p.clone(),
                 None => state.get_current_player(),
             };
-            
+
             // Get legal actions before moving state
             let legal_actions = state.get_legal_actions();
-            
+
             // Reuse an existing node
             node.state = state;
             node.action = action;
@@ -311,7 +311,7 @@ impl<S: GameState> NodePool<S> {
             node.depth = depth;
             node.player = player;
             node.unexpanded_actions = legal_actions;
-            
+
             node
         } else {
             // Create a new node if the pool is empty
@@ -319,19 +319,19 @@ impl<S: GameState> NodePool<S> {
             MCTSNode::new(state, action, parent_player, depth)
         }
     }
-    
+
     /// Recycles a node back to the pool for future reuse
     pub fn recycle_node(&mut self, mut node: MCTSNode<S>) {
         self.stats.total_recycled += 1;
-        
+
         // Clear any large data structures to prevent memory bloat
         node.children.clear();
         node.unexpanded_actions.clear();
-        
+
         // Add the node back to the free list
         self.free_nodes.push(node);
     }
-    
+
     /// Recycles all nodes in a tree by recursively adding them to the pool
     pub fn recycle_tree(&mut self, mut root: MCTSNode<S>) {
         // First, recursively recycle all children
@@ -339,19 +339,36 @@ impl<S: GameState> NodePool<S> {
         for child in children.drain(..) {
             self.recycle_tree(child);
         }
-        
+
         // Then recycle the root node itself
         self.recycle_node(root);
     }
-    
+
     /// Get statistics about pool utilization
     pub fn get_stats(&self) -> &NodePoolStats {
         &self.stats
     }
-    
+
     /// Get current pool size (available nodes)
     pub fn available_nodes(&self) -> usize {
         self.free_nodes.len()
+    }
+}
+
+// Manual Clone implementation for NodePool
+impl<S: GameState> Clone for NodePool<S> {
+    fn clone(&self) -> Self {
+        // Create a new pool with the same template state and stats
+        let pool = NodePool {
+            template_state: self.template_state.clone(),
+            free_nodes: Vec::new(), // Start with empty free_nodes
+            stats: self.stats.clone(),
+        };
+
+        // We don't clone the free_nodes as they cannot be shared between instances
+        // Instead, we'll create new nodes when needed
+
+        pool
     }
 }
 
@@ -411,4 +428,20 @@ impl fmt::Display for NodePath {
         }
         write!(f, "]")
     }
+}
+
+/// Standalone helper function for tree recycling
+///
+/// This needs to be outside the MCTS impl to avoid borrow checker issues
+pub fn recycle_subtree_recursive<S: GameState>(mut node: MCTSNode<S>, pool: &mut NodePool<S>) {
+    // First take all children
+    let mut children = std::mem::take(&mut node.children);
+
+    // Recursively recycle each child
+    for child in children.drain(..) {
+        recycle_subtree_recursive(child, pool);
+    }
+
+    // Now recycle the node itself
+    pool.recycle_node(node);
 }

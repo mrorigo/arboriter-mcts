@@ -180,4 +180,5 @@ impl MCTSConfig {
         self.node_pool_size = 0;
         self
     }
+    // Thread-local pool support removed for now
 }

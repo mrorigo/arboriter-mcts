@@ -12,6 +12,7 @@ A flexible, well-documented Monte Carlo Tree Search (MCTS) implementation for Ru
 - 🧰 **Generic implementation** that works with any game or decision process
 - 🔄 **Multiple selection policies** (UCB1, UCB1-Tuned, PUCT) for optimal exploration/exploitation
 - 🎲 **Customizable simulation strategies** to match your domain knowledge
+- 🚀 **Memory-efficient node pooling** for improved performance in sequential searches
 - 📊 **Detailed search statistics and visualization** for debugging and analysis
 - 🧪 **Comprehensive test suite** ensuring correctness and reliability
 - 📝 **Thorough documentation** with examples for easy integration
@@ -22,7 +23,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-arboriter-mcts = "0.1.0"
+arboriter-mcts = "0.2.0"
 ```
 
 ## Basic Usage
@@ -36,19 +37,19 @@ use arboriter_mcts::{MCTS, MCTSConfig, GameState};
 impl GameState for MyGame {
     type Action = MyAction;
     type Player = MyPlayer;
-    
+
     // Return legal actions from the current state
     fn get_legal_actions(&self) -> Vec<Self::Action> { /* ... */ }
-    
+
     // Apply an action and return the new state
     fn apply_action(&self, action: &Self::Action) -> Self { /* ... */ }
-    
+
     // Check if the game is over
     fn is_terminal(&self) -> bool { /* ... */ }
-    
+
     // Get the result (0.0 = loss, 0.5 = draw, 1.0 = win)
     fn get_result(&self, for_player: &Self::Player) -> f64 { /* ... */ }
-    
+
     // Get the current player
     fn get_current_player(&self) -> Self::Player { /* ... */ }
 }
@@ -99,24 +100,52 @@ Monte Carlo Tree Search combines tree search with random sampling to find optima
 
 This process is repeated many times, gradually building a tree of game states and improving the value estimates for each action.
 
+Our implementation includes memory-efficient node pooling which recycles nodes during sequential searches instead of constantly allocating and deallocating memory, significantly improving performance especially for multi-step decision processes.
+
 ## Advanced Customization
 
 You can customize all aspects of the MCTS algorithm to match your specific needs:
 
 ```rust
+// Standard configuration
 let mut mcts = MCTS::new(initial_state, config)
     // Use UCB1 for selection with custom exploration constant
     .with_selection_policy(UCB1Policy::new(1.414))
-    
+
     // Use domain-specific heuristics for simulation
     .with_simulation_policy(HeuristicPolicy::new(my_heuristic_fn))
-    
+
     // Use a weighted backpropagation policy
     .with_backpropagation_policy(WeightedPolicy::new(0.5));
 
 // Configure time-based search limits
 let action = mcts.search_for_time(Duration::from_secs(5))?;
+
+// Enable node pooling for better performance
+let config_with_pooling = MCTSConfig::default()
+    .with_max_iterations(10_000)
+    .with_node_pool_config(1000, 500); // Initial pool size and chunk size
+
+// Create MCTS with node pooling
+let mut mcts_with_pool = MCTS::with_node_pool(
+    initial_state,
+    config_with_pooling,
+    1000, // Initial pool size
+    500   // Chunk size
+);
+
+// For sequential searches (e.g., playing a full game), you can reset the root
+// to reuse nodes instead of creating a new MCTS instance each time
+mcts_with_pool.reset_root(new_state);
 ```
+
+Node pooling provides significant performance benefits by reducing memory allocation overhead, especially for:
+- Games with large branching factors
+- Sequential searches during gameplay
+- Deep search trees
+- Time-critical applications
+
+The statistics output will show node pool usage details when enabled.
 
 ## Documentation
 

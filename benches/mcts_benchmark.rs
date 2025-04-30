@@ -1,8 +1,8 @@
+#[macro_use]
 extern crate criterion;
 
-use arboriter_mcts::tree::MCTSNode;
 use arboriter_mcts::{Action, GameState, MCTSConfig, Player, MCTS};
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{black_box, BenchmarkId, Criterion};
 use std::time::Duration;
 
 // Simple game state for benchmarking
@@ -97,7 +97,7 @@ fn bench_mcts_search(c: &mut Criterion) {
             .with_exploration_constant(1.414)
             .with_max_iterations(1000);
 
-        group.bench_with_input(BenchmarkId::new("branching_factor", bf), bf, |b, &_| {
+        group.bench_with_input(BenchmarkId::new("branching_factor", bf),bf, |b, &_| {
             b.iter(|| {
                 let mut mcts = MCTS::new(initial_state.clone(), config.clone());
                 black_box(mcts.search())
@@ -144,7 +144,7 @@ fn bench_mcts_search(c: &mut Criterion) {
             .with_node_pool_config(1000, 500);
 
         // Benchmark without node pool
-        group.bench_with_input(BenchmarkId::new("no_pool/branching", bf), bf, |b, &_| {
+        group.bench_with_input(BenchmarkId::new("no_pool/branching", bf),bf, |b, &_| {
             b.iter(|| {
                 let mut mcts = MCTS::new(initial_state.clone(), config_no_pool.clone());
                 black_box(mcts.search())
@@ -152,7 +152,7 @@ fn bench_mcts_search(c: &mut Criterion) {
         });
 
         // Benchmark with node pool
-        group.bench_with_input(BenchmarkId::new("with_pool/branching", bf), bf, |b, &_| {
+        group.bench_with_input(BenchmarkId::new("with_pool/branching", bf),bf, |b, &_| {
             b.iter(|| {
                 let mut mcts = MCTS::with_node_pool(
                     initial_state.clone(),
@@ -214,9 +214,9 @@ fn bench_mcts_search(c: &mut Criterion) {
     // Test sequential searches to demonstrate node recycling benefits
     // This benchmark performs multiple searches with the same MCTS instance
     {
-        // Use a smaller depth to ensure we have actions
-        let initial_state = BenchGameState::new(3, 3); // Smaller depth, same branching factor
-        let search_iterations = 300; // Each search does this many iterations
+        // Special version that creates a fresh state for each search to avoid running out of actions
+        let create_state = || BenchGameState::new(5, 6); // Deeper tree to ensure we don't run out of actions
+        let search_iterations = 500; // Each search does this many iterations
         let search_count = 5; // Number of sequential searches to perform
 
         // Configuration without node pool
@@ -228,24 +228,24 @@ fn bench_mcts_search(c: &mut Criterion) {
         let config_with_pool = MCTSConfig::default()
             .with_exploration_constant(1.414)
             .with_max_iterations(search_iterations)
-            .with_node_pool_config(2000, 500);
+            .with_node_pool_config(5000, 1000);
 
         // Benchmark sequential searches without node pool
         group.bench_function("sequential_searches_no_pool", |b| {
             b.iter(|| {
                 // Create a new MCTS instance
-                let mut mcts = MCTS::new(initial_state.clone(), config_no_pool.clone());
-
+                let mut mcts = MCTS::new(create_state(), config_no_pool.clone());
+                
                 // Perform multiple searches
-                for _ in 0..search_count {
-                    // Do the search, ignoring errors (for benchmark purposes)
-                    let _ = mcts.search();
-
-                    // For benchmarking purposes, make sure we have legal actions for next search
-                    if mcts.root.unexpanded_actions.is_empty() && mcts.root.children.is_empty() {
-                        // Reset to fresh state for next search
-                        mcts.root = MCTSNode::new(initial_state.clone(), None, None, 0);
+                for i in 0..search_count {
+                    // For sequential searches, we need to reset the root state
+                    // This simulates a real game where the tree grows after each move
+                    if i > 0 {
+                        mcts.reset_root(create_state());
                     }
+                    
+                    // Run the search
+                    let _ = black_box(mcts.search());
                 }
             })
         });
@@ -255,22 +255,22 @@ fn bench_mcts_search(c: &mut Criterion) {
             b.iter(|| {
                 // Create a new MCTS instance with node pool
                 let mut mcts = MCTS::with_node_pool(
-                    initial_state.clone(),
+                    create_state(),
                     config_with_pool.clone(),
-                    2000, // Initial pool size
-                    500,  // Chunk size (not used in new implementation)
+                    5000,  // Initial pool size
+                    1000   // Chunk size (not used in new implementation)
                 );
-
+                
                 // Perform multiple searches
                 for i in 0..search_count {
-                    // Do the search, ignoring errors (for benchmark purposes)
-                    let _ = mcts.search();
-
-                    // For benchmarking purposes, make sure we have legal actions for next search
-                    if mcts.root.unexpanded_actions.is_empty() && mcts.root.children.is_empty() {
-                        // Reset to fresh state for next search
-                        mcts.root = MCTSNode::new(initial_state.clone(), None, None, 0);
+                    // For sequential searches, we need to reset the root state
+                    // This simulates a real game where the tree grows after each move
+                    if i > 0 {
+                        mcts.reset_root(create_state());
                     }
+                    
+                    // Run the search
+                    let _ = black_box(mcts.search());
                 }
             })
         });
