@@ -160,8 +160,8 @@ impl<S: GameState + 'static> MCTS<S> {
         let result = self.search_for_iterations(self.config.max_iterations);
 
         // If using node pooling, we need to select the best action before recycling
-        let best_action = if result.is_ok() {
-            Some(result.as_ref().unwrap().clone())
+        let best_action = if let Ok(action) = &result {
+            Some(action.clone())
         } else {
             None
         };
@@ -255,7 +255,7 @@ impl<S: GameState + 'static> MCTS<S> {
             let node_pool_chunk_size = config.node_pool_chunk_size;
             
             // If we already have a regular node pool, create a similar one
-            if let Some(_) = &self.node_pool {
+            if self.node_pool.is_some() {
                 // Create a new instance using the clone of the state
                 let mut new_mcts = MCTS::new(self.root.state.clone(), config);
                 

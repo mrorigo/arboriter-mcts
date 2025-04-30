@@ -58,6 +58,11 @@
 //!         let mut new_state = self.clone();
 //!         // Logic to apply action would go here
 //!         new_state.player_turn = MyPlayer(1 - self.player_turn.0); // Switch players
+//!
+//!         // Mark the state as terminal after an action to prevent infinite search
+//!         // In a real game, you would have proper termination conditions
+//!         new_state.is_over = true;
+//!
 //!         new_state
 //!     }
 //!
@@ -85,10 +90,10 @@
 //!     is_over: false,
 //! };
 //!
-//! // Create a configuration for the search
+// Create a configuration for the search
 //! let config = MCTSConfig::default()
 //!     .with_exploration_constant(1.414)
-//!     .with_max_iterations(1_000);
+//!     .with_max_iterations(10); // Small number of iterations for doctest
 //!
 //! // Create the MCTS searcher with initial state
 //! let mut mcts = MCTS::new(initial_state, config);

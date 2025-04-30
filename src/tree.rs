@@ -359,16 +359,13 @@ impl<S: GameState> NodePool<S> {
 impl<S: GameState> Clone for NodePool<S> {
     fn clone(&self) -> Self {
         // Create a new pool with the same template state and stats
-        let pool = NodePool {
+        // We don't clone the free_nodes as they cannot be shared between instances
+        // Instead, we'll create new nodes when needed
+        NodePool {
             template_state: self.template_state.clone(),
             free_nodes: Vec::new(), // Start with empty free_nodes
             stats: self.stats.clone(),
-        };
-
-        // We don't clone the free_nodes as they cannot be shared between instances
-        // Instead, we'll create new nodes when needed
-
-        pool
+        }
     }
 }
 
