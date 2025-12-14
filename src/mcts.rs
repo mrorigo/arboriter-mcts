@@ -5,8 +5,6 @@
 
 use std::time::{Duration, Instant};
 
-
-
 use crate::{
     config::MCTSConfig,
     game_state::GameState,
@@ -112,12 +110,7 @@ impl<S: GameState + 'static> MCTS<S> {
     /// * `initial_state` - The initial game state
     /// * `config` - Configuration for the search
     /// * `initial_pool_size` - Initial number of nodes to pre-allocate
-    pub fn with_node_pool(
-        initial_state: S,
-        config: MCTSConfig,
-        initial_pool_size: usize,
-
-    ) -> Self {
+    pub fn with_node_pool(initial_state: S, config: MCTSConfig, initial_pool_size: usize) -> Self {
         let mut mcts = Self::new(initial_state.clone(), config);
 
         // Initialize the regular node pool
@@ -134,7 +127,7 @@ impl<S: GameState + 'static> MCTS<S> {
         self.selection_policy = Box::new(policy);
         self
     }
-    
+
     /// Returns a reference to the root node (useful for inspection/testing)
     pub fn root(&self) -> &MCTSNode<S> {
         &self.root
@@ -274,7 +267,6 @@ impl<S: GameState + 'static> MCTS<S> {
             // We need to extract the values before moving config
             let node_pool_size = config.node_pool_size;
 
-
             // If we already have a regular node pool, create a similar one
             if self.node_pool.is_some() {
                 // Create a new instance using the clone of the state
@@ -289,11 +281,7 @@ impl<S: GameState + 'static> MCTS<S> {
                 new_mcts
             } else {
                 // Create a fresh instance with a new pool
-                MCTS::with_node_pool(
-                    self.root.state.clone(),
-                    config,
-                    node_pool_size,
-                )
+                MCTS::with_node_pool(self.root.state.clone(), config, node_pool_size)
             }
         } else {
             MCTS::new(self.root.state.clone(), config)
@@ -373,7 +361,8 @@ impl<S: GameState + 'static> MCTS<S> {
 
         // If there are unexpanded actions, use the expansion policy to choose one
         if !node.unexpanded_actions.is_empty() {
-             if let Some((action_index, prior)) = self.expansion_policy.select_action_to_expand(node) {
+            if let Some((action_index, prior)) = self.expansion_policy.select_action_to_expand(node)
+            {
                 // The index of the new child will be the current length (since expand pushes to children)
                 let new_child_index = node.children.len();
 
@@ -390,7 +379,7 @@ impl<S: GameState + 'static> MCTS<S> {
                 if let Some(new_child) = expansion_result {
                     // Set the prior on the new child
                     new_child.set_prior(prior);
-                    
+
                     // Add the expanded node to the path
                     expanded_path.push(new_child_index);
 
@@ -410,7 +399,7 @@ impl<S: GameState + 'static> MCTS<S> {
 
                     // Access the state after expansion is complete
                     // We must re-borrow node here since expansion_result borrows it mutably
-                    // Actually we can't easily reborrow node.children. 
+                    // Actually we can't easily reborrow node.children.
                     // But we know expanded node is at new_child_index.
                     // Wait, new_child is &mut MCTSNode. We can just clone its state.
                     let expanded_state = new_child.state.clone();

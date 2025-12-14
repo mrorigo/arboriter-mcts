@@ -42,7 +42,7 @@ impl<S: GameState> ExpansionPolicy<S> for RandomExpansionPolicy {
 
         let mut rng = rand::thread_rng();
         let index = (0..node.unexpanded_actions.len()).choose(&mut rng)?;
-        
+
         // Calculate uniform prior: 1.0 / number of legal actions (at creation time)
         // Note: unexpanded_actions shrinks, so we need total actions.
         // But MCTSNode doesn't store total action count, only children + unexpanded.

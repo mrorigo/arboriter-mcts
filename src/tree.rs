@@ -110,7 +110,8 @@ impl<S: GameState> MCTSNode<S> {
 
     /// Sets the prior probability of this node
     pub fn set_prior(&self, prior: f64) {
-        self.prior.store(float_to_scaled_u64(prior), Ordering::Relaxed);
+        self.prior
+            .store(float_to_scaled_u64(prior), Ordering::Relaxed);
     }
 
     /// Returns the average reward (value) of this node
