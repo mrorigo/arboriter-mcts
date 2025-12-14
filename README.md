@@ -28,7 +28,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-arboriter-mcts = "0.2.0"
+arboriter-mcts = "0.3.0"
 ```
 
 ## Basic Usage
