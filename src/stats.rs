@@ -22,7 +22,7 @@ pub struct SearchStatistics {
 
     /// Whether the search was stopped early due to time constraints
     pub stopped_early: bool,
-    
+
     /// Node pool metrics (if node pool is used)
     pub node_pool_stats: Option<NodePoolStats>,
 }
@@ -32,13 +32,13 @@ pub struct SearchStatistics {
 pub struct NodePoolStats {
     /// Total capacity of the node pool
     pub capacity: usize,
-    
+
     /// Number of available nodes in the pool
     pub available: usize,
-    
+
     /// Total nodes allocated from the pool
     pub total_allocated: usize,
-    
+
     /// Total nodes returned to the pool
     pub total_returned: usize,
 }
@@ -55,9 +55,15 @@ impl SearchStatistics {
             node_pool_stats: None,
         }
     }
-    
+
     /// Update node pool statistics
-    pub fn update_node_pool_stats(&mut self, capacity: usize, available: usize, allocated: usize, returned: usize) {
+    pub fn update_node_pool_stats(
+        &mut self,
+        capacity: usize,
+        available: usize,
+        allocated: usize,
+        returned: usize,
+    ) {
         self.node_pool_stats = Some(NodePoolStats {
             capacity,
             available,
@@ -101,7 +107,7 @@ impl SearchStatistics {
             self.iterations_per_second(),
             self.stopped_early
         );
-        
+
         // Add node pool stats if available
         if let Some(pool_stats) = &self.node_pool_stats {
             summary.push_str(&format!(
@@ -122,7 +128,7 @@ impl SearchStatistics {
                 }
             ));
         }
-        
+
         summary
     }
 }

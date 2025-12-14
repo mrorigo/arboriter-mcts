@@ -3,12 +3,15 @@
 //! Backpropagation policies determine how to update node statistics
 //! after a simulation.
 
-use crate::{game_state::GameState, tree::MCTSNode};
+use crate::{
+    game_state::{Action, GameState},
+    tree::MCTSNode,
+};
 
 /// Trait for policies that backpropagate simulation results
 pub trait BackpropagationPolicy<S: GameState>: Send + Sync {
     /// Updates statistics for a node based on a simulation result
-    fn update_stats(&self, node: &mut MCTSNode<S>, result: f64);
+    fn update_stats(&self, node: &mut MCTSNode<S>, result: f64, trace: Option<&[S::Action]>);
 
     /// Create a boxed clone of this policy
     fn clone_box(&self) -> Box<dyn BackpropagationPolicy<S>>;
@@ -35,9 +38,10 @@ impl Default for StandardPolicy {
 }
 
 impl<S: GameState> BackpropagationPolicy<S> for StandardPolicy {
-    fn update_stats(&self, node: &mut MCTSNode<S>, result: f64) {
+    fn update_stats(&self, node: &mut MCTSNode<S>, result: f64, _trace: Option<&[S::Action]>) {
         node.increment_visits();
         node.add_reward(result);
+        node.add_squared_reward(result);
     }
 
     fn clone_box(&self) -> Box<dyn BackpropagationPolicy<S>> {
@@ -47,8 +51,8 @@ impl<S: GameState> BackpropagationPolicy<S> for StandardPolicy {
 
 // Implement BackpropagationPolicy for Box<dyn BackpropagationPolicy>
 impl<S: GameState> BackpropagationPolicy<S> for Box<dyn BackpropagationPolicy<S>> {
-    fn update_stats(&self, node: &mut MCTSNode<S>, result: f64) {
-        (**self).update_stats(node, result)
+    fn update_stats(&self, node: &mut MCTSNode<S>, result: f64, trace: Option<&[S::Action]>) {
+        (**self).update_stats(node, result, trace)
     }
 
     fn clone_box(&self) -> Box<dyn BackpropagationPolicy<S>> {
@@ -76,13 +80,14 @@ impl WeightedPolicy {
 }
 
 impl<S: GameState> BackpropagationPolicy<S> for WeightedPolicy {
-    fn update_stats(&self, node: &mut MCTSNode<S>, result: f64) {
+    fn update_stats(&self, node: &mut MCTSNode<S>, result: f64, _trace: Option<&[S::Action]>) {
         // Calculate weight based on depth
         // Higher depth means lower weight if depth_factor is positive
         let weight = 1.0 / (1.0 + self.depth_factor * node.depth as f64);
 
         node.increment_visits();
         node.add_reward(result * weight);
+        node.add_squared_reward(result * weight);
     }
 
     fn clone_box(&self) -> Box<dyn BackpropagationPolicy<S>> {
@@ -112,20 +117,23 @@ impl RavePolicy {
 }
 
 impl<S: GameState> BackpropagationPolicy<S> for RavePolicy {
-    fn update_stats(&self, node: &mut MCTSNode<S>, result: f64) {
+    fn update_stats(&self, node: &mut MCTSNode<S>, result: f64, trace: Option<&[S::Action]>) {
         // Standard update
         node.increment_visits();
+        node.add_reward(result);
+        node.add_squared_reward(result);
 
-        // RAVE is an advanced policy that requires tracking actions played during
-        // the simulation. This is a simplified implementation that just applies
-        // a weighted update.
-        let standard_weight = 1.0 - self.rave_weight;
-        node.add_reward(result * standard_weight);
+        // RAVE (AMAF) update
+        if let (Some(trace), Some(node_action)) = (trace, &node.action) {
+            // Check if the action leading to this node appears in the action trace
+            // (i.e., if this action was played later in the simulation)
+            let action_in_trace = trace.iter().any(|a| a.id() == node_action.id());
 
-        // In a real RAVE implementation, we would also update statistics for all
-        // nodes corresponding to actions played during the simulation.
-        // This would require tracking the actions played, which is beyond the
-        // scope of this example.
+            if action_in_trace {
+                node.increment_rave_visits();
+                node.add_rave_reward(result);
+            }
+        }
     }
 
     fn clone_box(&self) -> Box<dyn BackpropagationPolicy<S>> {

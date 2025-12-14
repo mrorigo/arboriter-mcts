@@ -55,8 +55,8 @@ impl GameState for TestGameState {
     }
 
     // Override the random playout to return a predictable result
-    fn simulate_random_playout(&self, _for_player: &Self::Player) -> f64 {
-        self.result
+    fn simulate_random_playout(&self, _for_player: &Self::Player) -> (f64, Vec<Self::Action>) {
+        (self.result, Vec::new())
     }
 }
 
@@ -70,7 +70,7 @@ fn test_random_policy() {
     };
 
     let policy = RandomPolicy::new();
-    let result = policy.simulate(&state);
+    let (result, _) = policy.simulate(&state);
 
     // Should use the built-in random playout which returns our fixed result
     assert_eq!(result, 0.75);
@@ -83,7 +83,7 @@ fn test_random_policy() {
         result: 0.25,
     };
 
-    let result_terminal = policy.simulate(&terminal_state);
+    let (result_terminal, _) = policy.simulate(&terminal_state);
     assert_eq!(result_terminal, 0.25);
 }
 
@@ -100,7 +100,7 @@ fn test_heuristic_policy() {
     let heuristic = |_state: &TestGameState| 0.42;
     let policy = HeuristicPolicy::new(heuristic);
 
-    let result = policy.simulate(&state);
+    let (result, _) = policy.simulate(&state);
     assert_eq!(
         result, 0.42,
         "Heuristic function should be used for non-terminal states"
@@ -114,7 +114,7 @@ fn test_heuristic_policy() {
         result: 0.25,
     };
 
-    let result_terminal = policy.simulate(&terminal_state);
+    let (result_terminal, _) = policy.simulate(&terminal_state);
     assert_eq!(
         result_terminal, 0.25,
         "Terminal state should use actual result"
@@ -135,26 +135,25 @@ fn test_mixture_policy() {
     let policy1 = HeuristicPolicy::new(heuristic1);
 
     // MixturePolicy with only one policy should return that policy's result
-    let mixture_policy = MixturePolicy::new()
-        .add_policy(policy1, 1.0);
-    
+    let mixture_policy = MixturePolicy::new().add_policy(policy1, 1.0);
+
     // Should be using our heuristic consistently
     let mut sum = 0.0;
     for _ in 0..10 {
-        sum += mixture_policy.simulate(&state);
+        sum += mixture_policy.simulate(&state).0;
     }
-    
+
     // Use approximate comparison for floating point
     let expected = 3.0;
     let epsilon = 1e-10;
-    assert!((sum - expected).abs() < epsilon, 
+    assert!((sum - expected).abs() < epsilon,
             "With only one policy, should consistently return that policy's result. Expected {}, got {}", 
             expected, sum);
 
     // Test empty policy (should fall back to random)
     let empty_policy = MixturePolicy::new();
     assert_eq!(
-        empty_policy.simulate(&state),
+        empty_policy.simulate(&state).0,
         0.5,
         "Empty policy should fall back to random"
     );

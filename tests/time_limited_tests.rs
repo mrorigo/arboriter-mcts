@@ -85,8 +85,10 @@ fn test_time_limited_search() {
     println!("Stats: {}", mcts.get_statistics().summary());
 
     // Verify the search stopped due to time limit
-    assert!(mcts.get_statistics().stopped_early,
-            "Statistics should indicate early stopping due to time limit");
+    assert!(
+        mcts.get_statistics().stopped_early,
+        "Statistics should indicate early stopping due to time limit"
+    );
 }
 
 #[test]

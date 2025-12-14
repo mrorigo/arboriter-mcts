@@ -24,6 +24,19 @@ pub struct MCTSNode<S: GameState> {
     /// Uses atomic operations and fixed-point representation internally
     pub total_reward: AtomicU64,
 
+    /// Sum of squared rewards (for variance calculation in UCB1-Tuned)
+    pub sum_squared_reward: AtomicU64,
+
+    /// Number of RAVE visits (AMAF)
+    pub rave_visits: AtomicU64,
+
+    /// Total RAVE reward
+    pub rave_reward: AtomicU64,
+
+    /// Prior probability for this node (P(s,a))
+    /// Used by PUCT policy. Defaults to 1.0 if not set.
+    pub prior: AtomicU64,
+
     /// Children nodes representing states reachable from this one
     pub children: Vec<MCTSNode<S>>,
 
@@ -69,6 +82,10 @@ impl<S: GameState> MCTSNode<S> {
             action,
             visits: AtomicU64::new(0),
             total_reward: AtomicU64::new(0),
+            sum_squared_reward: AtomicU64::new(0),
+            rave_visits: AtomicU64::new(0),
+            rave_reward: AtomicU64::new(0),
+            prior: AtomicU64::new(float_to_scaled_u64(1.0)), // Default prior is 1.0
             children: Vec::new(),
             unexpanded_actions,
             depth,
@@ -84,6 +101,16 @@ impl<S: GameState> MCTSNode<S> {
     /// Returns the total reward accumulated at this node
     pub fn total_reward(&self) -> f64 {
         scaled_u64_to_float(self.total_reward.load(Ordering::Relaxed))
+    }
+
+    /// Returns the prior probability of this node
+    pub fn prior(&self) -> f64 {
+        scaled_u64_to_float(self.prior.load(Ordering::Relaxed))
+    }
+
+    /// Sets the prior probability of this node
+    pub fn set_prior(&self, prior: f64) {
+        self.prior.store(float_to_scaled_u64(prior), Ordering::Relaxed);
     }
 
     /// Returns the average reward (value) of this node
@@ -104,6 +131,42 @@ impl<S: GameState> MCTSNode<S> {
     pub fn add_reward(&self, reward: f64) {
         self.total_reward
             .fetch_add(float_to_scaled_u64(reward), Ordering::Relaxed);
+    }
+
+    /// Adds squared reward (for UCB1-Tuned)
+    pub fn add_squared_reward(&self, reward: f64) {
+        self.sum_squared_reward
+            .fetch_add(float_to_scaled_u64(reward * reward), Ordering::Relaxed);
+    }
+
+    /// Returns the sum of squared rewards
+    pub fn sum_squared_reward(&self) -> f64 {
+        scaled_u64_to_float(self.sum_squared_reward.load(Ordering::Relaxed))
+    }
+
+    /// Increments the RAVE visit count
+    pub fn increment_rave_visits(&self) {
+        self.rave_visits.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Adds RAVE reward
+    pub fn add_rave_reward(&self, reward: f64) {
+        self.rave_reward
+            .fetch_add(float_to_scaled_u64(reward), Ordering::Relaxed);
+    }
+
+    /// Returns the number of RAVE visits
+    pub fn rave_visits(&self) -> u64 {
+        self.rave_visits.load(Ordering::Relaxed)
+    }
+
+    /// Returns the RAVE value (average RAVE reward)
+    pub fn rave_value(&self) -> f64 {
+        let visits = self.rave_visits();
+        if visits == 0 {
+            return 0.0;
+        }
+        scaled_u64_to_float(self.rave_reward.load(Ordering::Relaxed)) / visits as f64
     }
 
     /// Returns true if this node is fully expanded
@@ -271,6 +334,10 @@ impl<S: GameState> NodePool<S> {
                 action: None,
                 visits: AtomicU64::new(0),
                 total_reward: AtomicU64::new(0),
+                sum_squared_reward: AtomicU64::new(0),
+                rave_visits: AtomicU64::new(0),
+                rave_reward: AtomicU64::new(0),
+                prior: AtomicU64::new(float_to_scaled_u64(1.0)),
                 children: Vec::new(),
                 unexpanded_actions: Vec::new(),
                 depth: 0,
@@ -307,6 +374,10 @@ impl<S: GameState> NodePool<S> {
             node.action = action;
             node.visits = AtomicU64::new(0);
             node.total_reward = AtomicU64::new(0);
+            node.sum_squared_reward = AtomicU64::new(0);
+            node.rave_visits = AtomicU64::new(0);
+            node.rave_reward = AtomicU64::new(0);
+            node.prior = AtomicU64::new(float_to_scaled_u64(1.0));
             node.children.clear();
             node.depth = depth;
             node.player = player;

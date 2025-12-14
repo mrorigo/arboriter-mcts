@@ -11,7 +11,7 @@ fn test_config_builder_methods() {
         .with_max_depth(20)
         .with_transpositions(true)
         .with_best_child_criteria(BestChildCriteria::HighestValue);
-    
+
     // Verify each setting was applied correctly
     assert_eq!(config.exploration_constant, 2.0);
     assert_eq!(config.max_iterations, 5000);
@@ -25,7 +25,7 @@ fn test_config_builder_methods() {
 fn test_config_default_values() {
     // Test that default values are set correctly
     let config = MCTSConfig::default();
-    
+
     // Default exploration constant should be sqrt(2)
     assert!((config.exploration_constant - 1.414).abs() < 0.001);
     assert_eq!(config.max_iterations, 10_000);

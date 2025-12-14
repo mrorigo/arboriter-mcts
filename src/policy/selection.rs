@@ -14,6 +14,9 @@ pub trait SelectionPolicy<S: GameState>: Send + Sync {
 
     /// Create a boxed clone of this policy
     fn clone_box(&self) -> Box<dyn SelectionPolicy<S>>;
+
+    /// Returns the policy as Any to allow downcasting
+    fn as_any(&self) -> &dyn std::any::Any;
 }
 
 /// Upper Confidence Bound 1 (UCB1) selection policy
@@ -94,6 +97,10 @@ impl<S: GameState> SelectionPolicy<S> for UCB1Policy {
     fn clone_box(&self) -> Box<dyn SelectionPolicy<S>> {
         Box::new(self.clone())
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 /// Upper Confidence Bound 1 Tuned (UCB1-Tuned) selection policy
@@ -133,13 +140,19 @@ impl<S: GameState> SelectionPolicy<S> for UCB1TunedPolicy {
                 return i; // Always explore nodes that have never been visited
             }
 
-            // UCB1-Tuned uses an upper bound on the variance
-            // This is a simplified implementation
-            let variance_bound = 0.25; // Maximum variance for rewards in [0,1]
+            // UCB1-Tuned variance calculation
+            // V_n = (sum(x^2) / n) - (sum(x) / n)^2 + sqrt(2ln(N)/n)
+            let avg_reward = child_value;
+            let sum_squared = child.sum_squared_reward();
+            let variance = (sum_squared / child_visits as f64) - (avg_reward * avg_reward);
 
-            let exploration = self.exploration_constant
-                * ((parent_visits as f64).ln() / child_visits as f64).sqrt()
-                * f64::min(0.25, variance_bound);
+            let exploration_term = ((parent_visits as f64).ln() / child_visits as f64).sqrt();
+            let upper_bound_variance = variance + exploration_term;
+
+            // Allow variance to be at most 0.25 (since rewards are in [0,1])
+            let min_variance = f64::min(0.25, upper_bound_variance);
+
+            let exploration = self.exploration_constant * exploration_term * min_variance;
 
             let ucb_value = child_value + exploration;
 
@@ -155,20 +168,23 @@ impl<S: GameState> SelectionPolicy<S> for UCB1TunedPolicy {
     fn clone_box(&self) -> Box<dyn SelectionPolicy<S>> {
         Box::new(self.clone())
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 /// Polynomial Upper Confidence Trees (PUCT) selection policy
 ///
 /// This policy is used in AlphaZero and similar algorithms. It uses
 /// a prior probability distribution over actions.
+///
+/// Note: The priors are assigned during the expansion phase via the
+/// [`ExpansionPolicy`](crate::policy::expansion::ExpansionPolicy).
 #[derive(Debug, Clone)]
 pub struct PUCTPolicy {
     /// Exploration constant
     pub exploration_constant: f64,
-
-    /// Prior probabilities for each action
-    /// If none are provided, all actions are equally likely
-    pub priors: Option<Vec<f64>>,
 }
 
 impl PUCTPolicy {
@@ -176,15 +192,6 @@ impl PUCTPolicy {
     pub fn new(exploration_constant: f64) -> Self {
         PUCTPolicy {
             exploration_constant,
-            priors: None,
-        }
-    }
-
-    /// Creates a new PUCT policy with prior probabilities
-    pub fn with_priors(exploration_constant: f64, priors: Vec<f64>) -> Self {
-        PUCTPolicy {
-            exploration_constant,
-            priors: Some(priors),
         }
     }
 }
@@ -199,16 +206,6 @@ impl<S: GameState> SelectionPolicy<S> for PUCTPolicy {
         let mut best_value = f64::NEG_INFINITY;
         let mut best_index = 0;
 
-        // Get priors or use uniform distribution
-        let uniform_prior = vec![1.0];
-        let priors = match &self.priors {
-            Some(p) => p,
-            None => {
-                // Uniform distribution
-                &uniform_prior
-            }
-        };
-
         for (i, child) in node.children.iter().enumerate() {
             let child_value = child.value();
             let child_visits = child.visits();
@@ -217,8 +214,8 @@ impl<S: GameState> SelectionPolicy<S> for PUCTPolicy {
                 return i; // Always explore nodes that have never been visited
             }
 
-            // Get prior for this action (or 1.0 if using uniform)
-            let prior = if i < priors.len() { priors[i] } else { 1.0 };
+            // Get prior from the child node
+            let prior = child.prior();
 
             // PUCT formula from AlphaZero: Q(s,a) + U(s,a)
             // where U(s,a) = c_puct * P(s,a) * sqrt(sum_b N(s,b)) / (1 + N(s,a))
@@ -240,6 +237,10 @@ impl<S: GameState> SelectionPolicy<S> for PUCTPolicy {
     fn clone_box(&self) -> Box<dyn SelectionPolicy<S>> {
         Box::new(self.clone())
     }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
 }
 
 impl Default for PUCTPolicy {
@@ -256,5 +257,9 @@ impl<S: GameState> SelectionPolicy<S> for Box<dyn SelectionPolicy<S>> {
 
     fn clone_box(&self) -> Box<dyn SelectionPolicy<S>> {
         (**self).clone_box()
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        (**self).as_any()
     }
 }

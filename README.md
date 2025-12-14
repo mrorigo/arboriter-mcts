@@ -10,8 +10,13 @@ A flexible, well-documented Monte Carlo Tree Search (MCTS) implementation for Ru
 ## Features
 
 - 🧰 **Generic implementation** that works with any game or decision process
-- 🔄 **Multiple selection policies** (UCB1, UCB1-Tuned, PUCT) for optimal exploration/exploitation
+- 🔄 **Multiple selection policies**
+    - **UCB1**: Standard Upper Confidence Bound for Trees
+    - **UCB1-Tuned**: Robust implementation using actual variance calculation
+    - **PUCT**: Proven policy used in AlphaZero, with support for state-dependent priors via `ExpansionPolicy`
+- ⚡ **RAVE (Rapid Action Value Estimation)**: True AMAF implementation with simulation traces
 - 🎲 **Customizable simulation strategies** to match your domain knowledge
+- 🌳 **Customizable expansion strategies** via `ExpansionPolicy` for setting priors
 - 🚀 **Memory-efficient node pooling** for improved performance in sequential searches
 - 📊 **Detailed search statistics and visualization** for debugging and analysis
 - 🧪 **Comprehensive test suite** ensuring correctness and reliability
@@ -111,33 +116,37 @@ You can customize all aspects of the MCTS algorithm to match your specific needs
 let mut mcts = MCTS::new(initial_state, config)
     // Use UCB1 for selection with custom exploration constant
     .with_selection_policy(UCB1Policy::new(1.414))
+    
+    // Choose how to expand nodes and set priors (e.g. for PUCT)
+    .with_expansion_policy(RandomExpansionPolicy::new())
 
     // Use domain-specific heuristics for simulation
     .with_simulation_policy(HeuristicPolicy::new(my_heuristic_fn))
 
-    // Use a weighted backpropagation policy
-    .with_backpropagation_policy(WeightedPolicy::new(0.5));
+    // Use a weighted backpropagation policy (or RavePolicy)
+    .with_backpropagation_policy(RavePolicy::new(0.5));
 
 // Configure time-based search limits
 let action = mcts.search_for_time(Duration::from_secs(5))?;
 
 // Enable node pooling for better performance
 let config_with_pooling = MCTSConfig::default()
-    .with_max_iterations(10_000)
-    .with_node_pool_config(1000, 500); // Initial pool size and chunk size
+    .with_best_child_criteria(BestChildCriteria::MostVisits)
+    .with_node_pool_config(1000);  // Enable node pooling
 
 // Create MCTS with node pooling
 let mut mcts_with_pool = MCTS::with_node_pool(
     initial_state,
     config_with_pooling,
-    1000, // Initial pool size
-    500   // Chunk size
 );
 
 // For sequential searches (e.g., playing a full game), you can reset the root
 // to reuse nodes instead of creating a new MCTS instance each time
 mcts_with_pool.reset_root(new_state);
 ```
+
+### Note on RAVE and Simulation
+The `simulate` method in our policies now returns `(f64, Vec<Action>)`. This action trace is critical for RAVE to update statistics for all moves played during the simulation (All Moves As First). Ensure your `GameState` implementation also returns this trace if you override `simulate_random_playout`.
 
 Node pooling provides significant performance benefits by reducing memory allocation overhead, especially for:
 - Games with large branching factors

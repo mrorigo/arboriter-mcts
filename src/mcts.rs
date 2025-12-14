@@ -5,13 +5,14 @@
 
 use std::time::{Duration, Instant};
 
-use rand::prelude::IteratorRandom;
+
 
 use crate::{
     config::MCTSConfig,
     game_state::GameState,
     policy::{
         backpropagation::{BackpropagationPolicy, StandardPolicy},
+        expansion::{ExpansionPolicy, RandomExpansionPolicy},
         selection::{SelectionPolicy, UCB1Policy},
         simulation::{RandomPolicy, SimulationPolicy},
     },
@@ -60,7 +61,10 @@ pub struct MCTS<S: GameState + 'static> {
     simulation_policy: Box<dyn SimulationPolicy<S>>,
 
     /// Policy for backpropagating results
-    backpropagation_policy: Box<dyn BackpropagationPolicy<S>>,
+    pub backpropagation_policy: Box<dyn BackpropagationPolicy<S>>,
+
+    /// Policy for expansion (PUCT fix)
+    pub expansion_policy: Box<dyn ExpansionPolicy<S>>,
 
     /// Node pool for efficient node allocation
     node_pool: Option<crate::tree::NodePool<S>>,
@@ -81,6 +85,8 @@ impl<S: GameState + 'static> MCTS<S> {
         let backpropagation_policy: Box<dyn BackpropagationPolicy<S>> =
             Box::new(StandardPolicy::new());
 
+        let expansion_policy: Box<dyn ExpansionPolicy<S>> = Box::new(RandomExpansionPolicy::new()); // Initialized expansion_policy
+
         // Create an initial node pool - disabled by default
         let node_pool = None;
 
@@ -91,6 +97,7 @@ impl<S: GameState + 'static> MCTS<S> {
             selection_policy,
             simulation_policy,
             backpropagation_policy,
+            expansion_policy,
             node_pool,
         }
     }
@@ -109,7 +116,7 @@ impl<S: GameState + 'static> MCTS<S> {
         initial_state: S,
         config: MCTSConfig,
         initial_pool_size: usize,
-        _pool_chunk_size: usize, // Kept for API compatibility
+
     ) -> Self {
         let mut mcts = Self::new(initial_state.clone(), config);
 
@@ -127,6 +134,11 @@ impl<S: GameState + 'static> MCTS<S> {
         self.selection_policy = Box::new(policy);
         self
     }
+    
+    /// Returns a reference to the root node (useful for inspection/testing)
+    pub fn root(&self) -> &MCTSNode<S> {
+        &self.root
+    }
 
     /// Sets the simulation policy to use
     pub fn with_simulation_policy<P: SimulationPolicy<S> + 'static>(mut self, policy: P) -> Self {
@@ -143,13 +155,22 @@ impl<S: GameState + 'static> MCTS<S> {
         self
     }
 
+    /// Sets the expansion policy
+    pub fn with_expansion_policy<P: crate::policy::expansion::ExpansionPolicy<S> + 'static>(
+        mut self,
+        policy: P,
+    ) -> Self {
+        self.expansion_policy = Box::new(policy);
+        self
+    }
+
     /// Runs the search algorithm and returns the best action
     pub fn search(&mut self) -> Result<S::Action> {
         // Initialize node pool if it's enabled in the config but not created yet
         if self.node_pool.is_none() && self.config.node_pool_size > 0 {
             self.node_pool = Some(crate::tree::NodePool::new(
                 self.root.state.clone(),
-                self.config.node_pool_size
+                self.config.node_pool_size,
             ));
         }
 
@@ -252,27 +273,26 @@ impl<S: GameState + 'static> MCTS<S> {
         let mut mcts = if config.node_pool_size > 0 {
             // We need to extract the values before moving config
             let node_pool_size = config.node_pool_size;
-            let node_pool_chunk_size = config.node_pool_chunk_size;
-            
+
+
             // If we already have a regular node pool, create a similar one
             if self.node_pool.is_some() {
                 // Create a new instance using the clone of the state
                 let mut new_mcts = MCTS::new(self.root.state.clone(), config);
-                
+
                 // Create a new node pool with the same size
                 new_mcts.node_pool = Some(crate::tree::NodePool::new(
                     self.root.state.clone(),
-                    node_pool_size
+                    node_pool_size,
                 ));
-                
+
                 new_mcts
             } else {
                 // Create a fresh instance with a new pool
                 MCTS::with_node_pool(
-                    self.root.state.clone(), 
+                    self.root.state.clone(),
                     config,
                     node_pool_size,
-                    node_pool_chunk_size
                 )
             }
         } else {
@@ -304,48 +324,35 @@ impl<S: GameState + 'static> MCTS<S> {
         let (_expanded_node, expanded_state) = self.expansion(&selected_path)?;
 
         // 3. Simulation phase
-        let result = self.simulation(&expanded_state);
+        let (result, trace) = self.simulation(&expanded_state);
 
         // 4. Backpropagation phase
-        self.backpropagation(&selected_path, result);
+        self.backpropagation(&selected_path, result, Some(&trace));
 
         Ok(())
     }
 
     /// Selection phase: Find a promising node to expand
     fn selection(&mut self) -> NodePath {
-        let mut path = NodePath::new();
+        let path = std::cell::RefCell::new(NodePath::new());
 
-        // Restructured to avoid closure borrowing issues
-        // This manually implements what for_tree would do
-        let mut current = &self.root;
-        let mut depth = 0;
-
-        // Continue while the node meets the traversal conditions
-        while !current.state.is_terminal()
-            && current.is_fully_expanded()
-            && !current.children.is_empty()
-        {
-            // Select the best child according to the selection policy
-            let best_child_idx = self.selection_policy.select_child(current);
-
-            // Update the path
-            path.push(best_child_idx);
-
-            // Move to the selected child
-            current = &current.children[best_child_idx];
-            depth += 1;
-
-            // Update statistics
-            self.statistics.max_depth = self.statistics.max_depth.max(depth);
-
-            // Check exit conditions
-            if current.state.is_terminal() || !current.is_fully_expanded() {
-                break;
+        arboriter::for_tree!(
+            node = &self.root;
+            !node.state.is_terminal() && node.is_fully_expanded() && !node.children.is_empty();
+            {
+                // Branch function: select the best child
+                let best_child_idx = self.selection_policy.select_child(node);
+                path.borrow_mut().push(best_child_idx);
+                // Return a single branch to follow
+                vec![&node.children[best_child_idx]]
             }
-        }
+            => {
+               // Body: update stats if needed (optional)
+               self.statistics.max_depth = self.statistics.max_depth.max(node.depth);
+            }
+        );
 
-        path
+        path.into_inner()
     }
 
     /// Expansion phase: Create a new child node for the selected node
@@ -364,46 +371,52 @@ impl<S: GameState + 'static> MCTS<S> {
             return Ok((expanded_path, node.state.clone()));
         }
 
-        // If there are unexpanded actions, choose one randomly
+        // If there are unexpanded actions, use the expansion policy to choose one
         if !node.unexpanded_actions.is_empty() {
-            let mut rng = rand::thread_rng();
-            let action_index = (0..node.unexpanded_actions.len()).choose(&mut rng).unwrap();
+             if let Some((action_index, prior)) = self.expansion_policy.select_action_to_expand(node) {
+                // The index of the new child will be the current length (since expand pushes to children)
+                let new_child_index = node.children.len();
 
-            // Decide whether to use the node pool
-            let expansion_result = if let Some(pool) = &mut self.node_pool {
-                // Use the regular node pool
-                node.expand_with_pool(action_index, pool)
-            } else {
-                // Use standard expansion without a pool
-                node.expand(action_index)
-            };
+                // Decide whether to use the node pool
+                let expansion_result = if let Some(pool) = &mut self.node_pool {
+                    // Use the regular node pool
+                    node.expand_with_pool(action_index, pool)
+                } else {
+                    // Use standard expansion without a pool
+                    node.expand(action_index)
+                };
 
-            // If expansion was successful
-            if expansion_result.is_some() {
-                // The index of the new child is the last one
-                let new_child_index = node.children.len() - 1;
+                // If expansion was successful
+                if let Some(new_child) = expansion_result {
+                    // Set the prior on the new child
+                    new_child.set_prior(prior);
+                    
+                    // Add the expanded node to the path
+                    expanded_path.push(new_child_index);
 
-                // Add the expanded node to the path
-                expanded_path.push(new_child_index);
+                    // Update statistics
+                    self.statistics.tree_size += 1;
 
-                // Update statistics
-                self.statistics.tree_size += 1;
+                    // Update node pool statistics if available
+                    if let Some(pool) = &self.node_pool {
+                        let pool_stats = pool.get_stats();
+                        self.statistics.node_pool_stats = Some(crate::stats::NodePoolStats {
+                            capacity: pool_stats.total_created,
+                            available: pool.available_nodes(),
+                            total_allocated: pool_stats.total_allocations,
+                            total_returned: pool_stats.total_recycled,
+                        });
+                    }
 
-                // Update node pool statistics if available
-                if let Some(pool) = &self.node_pool {
-                    let pool_stats = pool.get_stats();
-                    self.statistics.node_pool_stats = Some(crate::stats::NodePoolStats {
-                        capacity: pool_stats.total_created,
-                        available: pool.available_nodes(),
-                        total_allocated: pool_stats.total_allocations,
-                        total_returned: pool_stats.total_recycled,
-                    });
+                    // Access the state after expansion is complete
+                    // We must re-borrow node here since expansion_result borrows it mutably
+                    // Actually we can't easily reborrow node.children. 
+                    // But we know expanded node is at new_child_index.
+                    // Wait, new_child is &mut MCTSNode. We can just clone its state.
+                    let expanded_state = new_child.state.clone();
+
+                    return Ok((expanded_path, expanded_state));
                 }
-
-                // Access the state after expansion is complete
-                let expanded_state = node.children[new_child_index].state.clone();
-
-                return Ok((expanded_path, expanded_state));
             }
         }
 
@@ -412,22 +425,23 @@ impl<S: GameState + 'static> MCTS<S> {
     }
 
     /// Simulation phase: Play out the game from the expanded node
-    fn simulation(&self, state: &S) -> f64 {
+    fn simulation(&self, state: &S) -> (f64, Vec<S::Action>) {
         self.simulation_policy.simulate(state)
     }
 
     /// Backpropagation phase: Update statistics in all nodes along the path
-    fn backpropagation(&mut self, path: &NodePath, result: f64) {
+    fn backpropagation(&mut self, path: &NodePath, result: f64, trace: Option<&[S::Action]>) {
         // First, update the root node
         self.backpropagation_policy
-            .update_stats(&mut self.root, result);
+            .update_stats(&mut self.root, result, trace);
 
         // Then update all nodes along the path
         let mut node = &mut self.root;
 
         for &index in &path.indices {
             node = &mut node.children[index];
-            self.backpropagation_policy.update_stats(node, result);
+            self.backpropagation_policy
+                .update_stats(node, result, trace);
         }
     }
 
@@ -507,10 +521,10 @@ impl<S: GameState + 'static> MCTS<S> {
     pub fn reset_root(&mut self, state: S) {
         // First recycle the current tree to return all nodes to the pool
         self.recycle_tree();
-        
+
         // Then create a new root node
         self.root = MCTSNode::new(state, None, None, 0);
-        
+
         // Reset statistics
         self.statistics = SearchStatistics::new();
     }
@@ -520,24 +534,24 @@ impl<S: GameState + 'static> MCTS<S> {
     /// This releases all nodes (except the root) back to the pool for reuse in
     /// future searches. This can significantly improve performance when
     /// running multiple consecutive searches.
-    pub fn recycle_tree(&mut self) {        
+    pub fn recycle_tree(&mut self) {
         // Recycle using the regular node pool
         if let Some(pool) = &mut self.node_pool {
             // Take all children from the root
             let mut children = std::mem::take(&mut self.root.children);
-            
+
             // Recycle each child tree (using a standalone function to avoid borrow issues)
             for child in children.drain(..) {
                 recycle_subtree_recursive(child, pool);
             }
-            
+
             // Update statistics
             let stats = pool.get_stats();
             self.statistics.update_node_pool_stats(
                 stats.total_created,
                 pool.available_nodes(),
                 stats.total_allocations,
-                stats.total_recycled
+                stats.total_recycled,
             );
         }
     }
@@ -570,4 +584,3 @@ impl<S: GameState + 'static> MCTS<S> {
         }
     }
 }
-

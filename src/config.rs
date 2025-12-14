@@ -18,7 +18,7 @@ pub enum BestChildCriteria {
     ///
     /// Use this approach when reliability is more important than maximizing potential gain.
     MostVisits,
-    
+
     /// Select the child with the highest average value
     ///
     /// This can be more aggressive by favoring high-value moves even if they
@@ -46,7 +46,7 @@ pub enum BestChildCriteria {
 ///     .with_max_iterations(10_000)
 ///     .with_max_time(Duration::from_secs(5))
 ///     .with_best_child_criteria(BestChildCriteria::MostVisits)
-///     .with_node_pool_config(1000, 500);  // Enable node pooling
+///     .with_node_pool_config(1000);  // Enable node pooling
 /// ```
 #[derive(Debug, Clone)]
 pub struct MCTSConfig {
@@ -56,45 +56,42 @@ pub struct MCTSConfig {
     /// Higher values favor exploration of less-visited nodes.
     /// The standard value is sqrt(2) ≈ 1.414.
     pub exploration_constant: f64,
-    
+
     /// Maximum number of iterations to run
     ///
     /// The search will stop after this many iterations, even if there's
     /// still time available.
     pub max_iterations: usize,
-    
+
     /// Maximum time to run the search
     ///
     /// If set, the search will stop after this duration, even if the
     /// maximum iterations haven't been reached.
     pub max_time: Option<Duration>,
-    
+
     /// Maximum depth to search
     ///
     /// If set, the tree will not be expanded beyond this depth.
     pub max_depth: Option<usize>,
-    
+
     /// Whether to use transposition tables
     ///
     /// Transposition tables allow reusing evaluations for states that
     /// can be reached through different sequences of moves.
     pub use_transpositions: bool,
-    
+
     /// Criteria for selecting the best child after search
     ///
     /// Determines how the final action is selected once the search is complete.
     pub best_child_criteria: BestChildCriteria,
-    
+
     /// Node pool initial size
     ///
     /// If set (non-zero), enables the node pool allocator with this initial capacity.
     /// Node pooling can significantly improve performance by reducing allocation overhead.
+    /// If set (non-zero), enables the node pool allocator with this initial capacity.
+    /// Node pooling can significantly improve performance by reducing allocation overhead.
     pub node_pool_size: usize,
-    
-    /// Node pool chunk size for growth
-    ///
-    /// When the node pool needs to grow, it will allocate this many new nodes at once.
-    pub node_pool_chunk_size: usize,
 }
 
 impl Default for MCTSConfig {
@@ -107,7 +104,6 @@ impl Default for MCTSConfig {
             use_transpositions: false,
             best_child_criteria: BestChildCriteria::MostVisits,
             node_pool_size: 0, // Disabled by default
-            node_pool_chunk_size: 500,
         }
     }
 }
@@ -157,17 +153,15 @@ impl MCTSConfig {
     /// # Arguments
     ///
     /// * `initial_size` - Initial number of nodes to pre-allocate
-    /// * `chunk_size` - Number of nodes to allocate when the pool needs to grow
     ///
     /// # Returns
     ///
     /// The updated configuration
-    pub fn with_node_pool_config(mut self, initial_size: usize, chunk_size: usize) -> Self {
+    pub fn with_node_pool_config(mut self, initial_size: usize) -> Self {
         self.node_pool_size = initial_size;
-        self.node_pool_chunk_size = chunk_size;
         self
     }
-    
+
     /// Disables the node pool
     ///
     /// This method disables the node pool, causing MCTS to allocate nodes

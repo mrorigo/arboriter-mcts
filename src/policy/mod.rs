@@ -7,6 +7,7 @@
 //! - Expansion policies: How to create new nodes
 
 pub mod backpropagation;
+pub mod expansion;
 pub mod selection;
 pub mod simulation;
 

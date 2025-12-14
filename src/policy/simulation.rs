@@ -7,8 +7,8 @@ use crate::game_state::GameState;
 
 /// Trait for policies that simulate games
 pub trait SimulationPolicy<S: GameState>: Send + Sync {
-    /// Simulates a game from the given state and returns the result
-    fn simulate(&self, state: &S) -> f64;
+    /// Simulates a game from the given state and returns the result and action trace
+    fn simulate(&self, state: &S) -> (f64, Vec<S::Action>);
 
     /// Create a boxed clone of this policy
     fn clone_box(&self) -> Box<dyn SimulationPolicy<S>>;
@@ -34,7 +34,7 @@ impl Default for RandomPolicy {
 }
 
 impl<S: GameState> SimulationPolicy<S> for RandomPolicy {
-    fn simulate(&self, state: &S) -> f64 {
+    fn simulate(&self, state: &S) -> (f64, Vec<S::Action>) {
         // Use the built-in random playout method
         let player = state.get_current_player();
         state.simulate_random_playout(&player)
@@ -78,15 +78,15 @@ where
     F: Fn(&S) -> f64 + Clone + Send + Sync + 'static,
     S: GameState + 'static,
 {
-    fn simulate(&self, state: &S) -> f64 {
+    fn simulate(&self, state: &S) -> (f64, Vec<S::Action>) {
         // If terminal, return the actual result
         if state.is_terminal() {
             let player = state.get_current_player();
-            return state.get_result(&player);
+            return (state.get_result(&player), Vec::new());
         }
 
         // Otherwise, use the heuristic function
-        (self.heuristic)(state)
+        ((self.heuristic)(state), Vec::new())
     }
 
     fn clone_box(&self) -> Box<dyn SimulationPolicy<S>> {
@@ -141,7 +141,7 @@ impl<S: GameState> MixturePolicy<S> {
 }
 
 impl<S: GameState + 'static> SimulationPolicy<S> for MixturePolicy<S> {
-    fn simulate(&self, state: &S) -> f64 {
+    fn simulate(&self, state: &S) -> (f64, Vec<S::Action>) {
         use rand::Rng;
 
         if self.policies.is_empty() {
@@ -188,7 +188,7 @@ impl<S: GameState> Default for MixturePolicy<S> {
 }
 // Implement SimulationPolicy for Box<dyn SimulationPolicy>
 impl<S: GameState> SimulationPolicy<S> for Box<dyn SimulationPolicy<S>> {
-    fn simulate(&self, state: &S) -> f64 {
+    fn simulate(&self, state: &S) -> (f64, Vec<S::Action>) {
         (**self).simulate(state)
     }
 

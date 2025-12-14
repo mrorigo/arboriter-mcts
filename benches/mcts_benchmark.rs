@@ -97,7 +97,7 @@ fn bench_mcts_search(c: &mut Criterion) {
             .with_exploration_constant(1.414)
             .with_max_iterations(1000);
 
-        group.bench_with_input(BenchmarkId::new("branching_factor", bf),bf, |b, &_| {
+        group.bench_with_input(BenchmarkId::new("branching_factor", bf), bf, |b, &_| {
             b.iter(|| {
                 let mut mcts = MCTS::new(initial_state.clone(), config.clone());
                 black_box(mcts.search())
@@ -141,10 +141,10 @@ fn bench_mcts_search(c: &mut Criterion) {
         let config_with_pool = MCTSConfig::default()
             .with_exploration_constant(1.414)
             .with_max_iterations(1000)
-            .with_node_pool_config(1000, 500);
+            .with_node_pool_config(1000);
 
         // Benchmark without node pool
-        group.bench_with_input(BenchmarkId::new("no_pool/branching", bf),bf, |b, &_| {
+        group.bench_with_input(BenchmarkId::new("no_pool/branching", bf), bf, |b, &_| {
             b.iter(|| {
                 let mut mcts = MCTS::new(initial_state.clone(), config_no_pool.clone());
                 black_box(mcts.search())
@@ -152,13 +152,12 @@ fn bench_mcts_search(c: &mut Criterion) {
         });
 
         // Benchmark with node pool
-        group.bench_with_input(BenchmarkId::new("with_pool/branching", bf),bf, |b, &_| {
+        group.bench_with_input(BenchmarkId::new("with_pool/branching", bf), bf, |b, &_| {
             b.iter(|| {
                 let mut mcts = MCTS::with_node_pool(
                     initial_state.clone(),
                     config_with_pool.clone(),
                     1000, // Initial pool size
-                    500,  // Chunk size (not used in new implementation)
                 );
                 black_box(mcts.search())
             })
@@ -179,7 +178,7 @@ fn bench_mcts_search(c: &mut Criterion) {
         let config_with_pool = MCTSConfig::default()
             .with_exploration_constant(1.414)
             .with_max_iterations(iter_count)
-            .with_node_pool_config(2000, 500);
+            .with_node_pool_config(2000);
 
         // Benchmark without node pool
         group.bench_with_input(
@@ -203,7 +202,6 @@ fn bench_mcts_search(c: &mut Criterion) {
                         initial_state.clone(),
                         config_with_pool.clone(),
                         2000, // Initial pool size
-                        500,  // Chunk size (not used in new implementation)
                     );
                     black_box(mcts.search())
                 })
@@ -228,14 +226,14 @@ fn bench_mcts_search(c: &mut Criterion) {
         let config_with_pool = MCTSConfig::default()
             .with_exploration_constant(1.414)
             .with_max_iterations(search_iterations)
-            .with_node_pool_config(5000, 1000);
+            .with_node_pool_config(5000);
 
         // Benchmark sequential searches without node pool
         group.bench_function("sequential_searches_no_pool", |b| {
             b.iter(|| {
                 // Create a new MCTS instance
                 let mut mcts = MCTS::new(create_state(), config_no_pool.clone());
-                
+
                 // Perform multiple searches
                 for i in 0..search_count {
                     // For sequential searches, we need to reset the root state
@@ -243,7 +241,7 @@ fn bench_mcts_search(c: &mut Criterion) {
                     if i > 0 {
                         mcts.reset_root(create_state());
                     }
-                    
+
                     // Run the search
                     let _ = black_box(mcts.search());
                 }
@@ -257,10 +255,9 @@ fn bench_mcts_search(c: &mut Criterion) {
                 let mut mcts = MCTS::with_node_pool(
                     create_state(),
                     config_with_pool.clone(),
-                    5000,  // Initial pool size
-                    1000   // Chunk size (not used in new implementation)
+                    5000, // Initial pool size
                 );
-                
+
                 // Perform multiple searches
                 for i in 0..search_count {
                     // For sequential searches, we need to reset the root state
@@ -268,7 +265,7 @@ fn bench_mcts_search(c: &mut Criterion) {
                     if i > 0 {
                         mcts.reset_root(create_state());
                     }
-                    
+
                     // Run the search
                     let _ = black_box(mcts.search());
                 }
